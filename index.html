@@ -11,6 +11,27 @@
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+  <!-- Degradados compartidos por todas las medallas -->
+  <svg class="defs-medallas" width="0" height="0" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="m-bronce" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#f6c49a"/><stop offset=".45" stop-color="#c47f45"/><stop offset="1" stop-color="#7f4719"/>
+      </linearGradient>
+      <linearGradient id="m-plata" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#ffffff"/><stop offset=".45" stop-color="#c3cad4"/><stop offset="1" stop-color="#7d8796"/>
+      </linearGradient>
+      <linearGradient id="m-oro" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#fff1b8"/><stop offset=".45" stop-color="#eab308"/><stop offset="1" stop-color="#a16207"/>
+      </linearGradient>
+      <linearGradient id="t-ambar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#b45309"/></linearGradient>
+      <linearGradient id="t-violeta" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#5b21b6"/></linearGradient>
+      <linearGradient id="t-azul" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1e40af"/></linearGradient>
+      <linearGradient id="t-indigo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#3730a3"/></linearGradient>
+      <linearGradient id="t-verde" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#065f46"/></linearGradient>
+      <linearGradient id="t-rosa" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f43f5e"/><stop offset="1" stop-color="#9f1239"/></linearGradient>
+    </defs>
+  </svg>
+
   <header class="barra">
     <div class="barra-in">
       <a class="marca" href="#/"><span class="marca-logo">f′</span>Cálculo</a>
@@ -24,19 +45,21 @@
 
   <main id="app" tabindex="-1"></main>
 
-  <div id="avisos" class="avisos" aria-live="polite"></div>
-
   <noscript><p style="padding:2rem">Este sitio necesita JavaScript para funcionar.</p></noscript>
 
   <!-- Sin módulos ni build: funciona abriendo este archivo directamente o desde GitHub Pages. -->
   <script src="vendor/katex/katex.min.js"></script>
   <script src="vendor/katex/auto-render.min.js"></script>
+  <script src="js/expresiones.js"></script>
   <script src="js/progreso.js"></script>
   <script src="js/curso.js"></script>
-  <script src="js/medallas.js"></script>
   <script src="js/graficos.js"></script>
-  <script src="js/contenido/derivadas-cap1.js"></script>
   <script src="js/ejercicio.js"></script>
+  <script src="js/medallas.js"></script>
+  <script src="js/contenido/derivadas-cap1.js"></script>
+  <script src="js/contenido/derivadas-cap2.js"></script>
+  <script src="js/contenido/integrales-cap1.js"></script>
+  <script src="js/contenido/integrales-cap2.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

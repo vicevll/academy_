@@ -73,6 +73,7 @@
       'aria-label': cfg.descripcion || 'Gráfico'
     });
     var defs = svg('defs', null, this.svg);
+    this.defs = defs;
     var recorte = svg('clipPath', { id: id }, defs);
     svg('rect', {
       x: this.m.izq, y: this.m.arr,
@@ -192,6 +193,35 @@
     }, this.rotulos);
     t.textContent = contenido;
     return t;
+  };
+
+  /* Rectángulo entre el eje x y la altura y, de x0 a x1. */
+  Lienzo.prototype.rectangulo = function (x0, x1, y, attrs) {
+    var X0 = this.sx(x0), X1 = this.sx(x1), Y0 = this.sy(0), Y = this.sy(y);
+    var base = { x: Math.min(X0, X1), y: Math.min(Y0, Y), width: Math.abs(X1 - X0), height: Math.abs(Y - Y0) };
+    return svg('rect', Object.assign(base, attrs || {}), this.capa);
+  };
+
+  /* Región entre la curva y el eje x, de a a b: un color arriba del eje y otro abajo. */
+  Lienzo.prototype.area = function (f, a, b, colorArriba, colorAbajo, capa) {
+    if (b < a) { var t = a; a = b; b = t; }
+    if (b - a < 1e-9) return;
+    if (!this._recortes) {
+      var arriba = 'arriba-' + (++contador), abajo = 'abajo-' + (++contador);
+      var y0 = this.sy(0);
+      svg('rect', { x: 0, y: -10, width: this.ancho, height: Math.max(0, y0 + 10) }, svg('clipPath', { id: arriba }, this.defs));
+      svg('rect', { x: 0, y: y0, width: this.ancho, height: Math.max(0, this.alto - y0 + 10) }, svg('clipPath', { id: abajo }, this.defs));
+      this._recortes = { arriba: arriba, abajo: abajo };
+    }
+    var n = 160, d = 'M' + this.sx(a).toFixed(2) + ' ' + this.sy(0).toFixed(2);
+    for (var i = 0; i <= n; i++) {
+      var x = a + (b - a) * i / n;
+      d += 'L' + this.sx(x).toFixed(2) + ' ' + this.sy(f(x)).toFixed(2);
+    }
+    d += 'L' + this.sx(b).toFixed(2) + ' ' + this.sy(0).toFixed(2) + 'Z';
+    var destino = capa || this.capa;
+    svg('path', { d: d, fill: colorArriba, 'clip-path': 'url(#' + this._recortes.arriba + ')' }, destino);
+    svg('path', { d: d, fill: colorAbajo, 'clip-path': 'url(#' + this._recortes.abajo + ')' }, destino);
   };
 
   // ---------------------------------------------------------------------------
@@ -369,7 +399,202 @@
     });
   }
 
-  var tipos = { secante: montarSecante, tangente: montarTangente, figura: montarFigura };
+  // ---------------------------------------------------------------------------
+  // Botones segmentados
+  // ---------------------------------------------------------------------------
+  function segmentos(padre, nombre, opciones, actual, alElegir) {
+    var grupo = html('div', 'segmentos', padre);
+    grupo.setAttribute('role', 'group');
+    grupo.setAttribute('aria-label', nombre);
+    var botones = opciones.map(function (o) {
+      var b = html('button', 'segmento', grupo, o[1]);
+      b.type = 'button';
+      b.addEventListener('click', function () {
+        botones.forEach(function (x) { x.classList.remove('segmento--activo'); x.setAttribute('aria-pressed', 'false'); });
+        b.classList.add('segmento--activo');
+        b.setAttribute('aria-pressed', 'true');
+        alElegir(o[0]);
+      });
+      if (o[0] === actual) { b.classList.add('segmento--activo'); b.setAttribute('aria-pressed', 'true'); }
+      else b.setAttribute('aria-pressed', 'false');
+      return b;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Widget: sumas de Riemann
+  // ---------------------------------------------------------------------------
+  function montarRiemann(raiz, cfg) {
+    var f = cfg.f, a = cfg.a, b = cfg.b;
+    var valoresN = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50, 75, 100];
+    var idx = valoresN.indexOf(cfg.nInicial || 4);
+    if (idx < 0) idx = 3;
+    var metodo = cfg.metodo || 'izquierda';
+
+    raiz.classList.add('grafico');
+    var cuerpo = html('div', 'grafico-cuerpo', raiz);
+    var lienzo = new Lienzo(Object.assign({ ejeX: 'x', ejeY: 'f(x)', descripcion: cfg.descripcion }, cfg.vista));
+    cuerpo.appendChild(lienzo.svg);
+    var datos = html('div', 'grafico-datos', cuerpo);
+    var controles = html('div', 'grafico-controles', raiz);
+    segmentos(controles, 'Punto de cada rectángulo',
+      [['izquierda', 'Izquierda'], ['medio', 'Punto medio'], ['derecha', 'Derecha']], metodo,
+      function (m) { metodo = m; dibujar(); });
+    var barra = deslizador(controles, {
+      nombre: 'Número de rectángulos', min: 0, max: valoresN.length - 1, paso: 1, valor: idx,
+      alMover: function (v) { idx = v; dibujar(); }
+    });
+    if (cfg.nota) html('p', 'grafico-nota', raiz, cfg.nota);
+
+    function dibujar() {
+      var n = valoresN[idx], dx = (b - a) / n, suma = 0;
+      lienzo.limpiar();
+      for (var i = 0; i < n; i++) {
+        var x0 = a + i * dx, x1 = x0 + dx;
+        var xs = metodo === 'izquierda' ? x0 : (metodo === 'derecha' ? x1 : (x0 + x1) / 2);
+        var y = f(xs);
+        suma += y * dx;
+        var positivo = y >= 0;
+        lienzo.rectangulo(x0, x1, y, {
+          fill: positivo ? 'rgba(37, 99, 235, 0.15)' : 'rgba(185, 28, 28, 0.13)',
+          stroke: positivo ? COLOR.acento : COLOR.baja,
+          'stroke-width': n > 40 ? 0.5 : 1.1
+        });
+        if (n <= 20) lienzo.punto(xs, y, { r: 3, fill: positivo ? COLOR.acento : COLOR.baja, 'stroke-width': 1 });
+      }
+      lienzo.curva(f);
+
+      var exacta = cfg.exacta;
+      datos.innerHTML =
+        '<dl class="lectura">' +
+          '<div><dt>Rectángulos</dt><dd><i>n</i> = ' + n + '</dd></div>' +
+          '<div><dt>Ancho de cada uno</dt><dd>Δ<i>x</i> = ' + num(dx, 4) + '</dd></div>' +
+          '<div class="lectura-principal"><dt>Suma de Riemann</dt><dd>' + num(suma, 4) + '</dd></div>' +
+          (exacta != null
+            ? '<div class="lectura-tenue"><dt>Área exacta</dt><dd>' + (cfg.exactaTexto || num(exacta, 4)) + '</dd></div>' +
+              '<div class="lectura-tenue"><dt>Diferencia</dt><dd>' + num(suma - exacta, 4) + '</dd></div>'
+            : '') +
+        '</dl>';
+      barra.rotulo.innerHTML = '<i>n</i> = ' + n;
+      if (n >= 100 && window.Progreso) window.Progreso.evento('rectangulos');
+    }
+
+    dibujar();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Widget: función de acumulación A(x) = ∫_a^x f(t) dt
+  // ---------------------------------------------------------------------------
+  function montarAcumulacion(raiz, cfg) {
+    var f = cfg.f, a = cfg.a, x = cfg.xInicial;
+    var xmin = cfg.vista.xmin, xmax = cfg.vista.xmax, N = 1200, paso = (xmax - xmin) / N;
+    var acum = [0];
+    for (var i = 0; i < N; i++) {
+      var x0 = xmin + i * paso;
+      acum.push(acum[i] + (f(x0) + 4 * f(x0 + paso / 2) + f(x0 + paso)) / 6 * paso);
+    }
+    function interpolar(t) {
+      var p = (t - xmin) / paso, k = Math.max(0, Math.min(N - 1, Math.floor(p)));
+      return acum[k] + (acum[k + 1] - acum[k]) * (p - k);
+    }
+    var base = interpolar(a);
+    var A = function (t) { return interpolar(t) - base; };
+
+    raiz.classList.add('grafico');
+    var cuerpo = html('div', 'grafico-cuerpo grafico-cuerpo--columna', raiz);
+    var arriba = new Lienzo(Object.assign({}, cfg.vista, { ejeX: 't', ejeY: 'f(t)', alto: 250, descripcion: 'Gráfica de f con el área acumulada sombreada' }));
+    cuerpo.appendChild(arriba.svg);
+    arriba.curva(f, null, null, null, arriba.fija);
+    var abajo = new Lienzo(Object.assign({}, cfg.vista, cfg.vistaAcumulada, { ejeX: 'x', ejeY: 'A(x)', alto: 230, descripcion: 'Gráfica de la función de acumulación A' }));
+    cuerpo.appendChild(abajo.svg);
+    abajo.curva(A, { stroke: '#cfcfcf', 'stroke-width': 1.6, 'stroke-dasharray': '4 4' }, null, null, abajo.fija);
+
+    var estado = html('p', 'grafico-estado', raiz);
+    var controles = html('div', 'grafico-controles', raiz);
+    var barra = deslizador(controles, {
+      nombre: 'Extremo superior x', min: cfg.xMin, max: cfg.xMax, paso: cfg.paso || 0.05, valor: x,
+      alMover: function (v) { x = v; dibujar(); }
+    });
+    if (cfg.nota) html('p', 'grafico-nota', raiz, cfg.nota);
+
+    function dibujar() {
+      var fx = f(x), Ax = A(x);
+      arriba.limpiar();
+      arriba.area(f, a, x, 'rgba(37, 99, 235, 0.22)', 'rgba(185, 28, 28, 0.2)');
+      arriba.segmento(x, 0, x, fx, { stroke: COLOR.tinta, 'stroke-width': 1.4 });
+      arriba.punto(x, fx);
+      arriba.texto(a, 0, 'a', { dx: 0, dy: 15, ancla: 'middle', color: COLOR.plano });
+
+      abajo.limpiar();
+      abajo.curva(A, { stroke: COLOR.acento, 'stroke-width': 2.4 }, Math.min(a, x), Math.max(a, x));
+      var color = Math.abs(fx) < 0.05 ? COLOR.plano : (fx > 0 ? COLOR.sube : COLOR.baja);
+      abajo.segmento(x - 0.8, Ax - 0.8 * fx, x + 0.8, Ax + 0.8 * fx, { stroke: color, 'stroke-width': 2 });
+      abajo.punto(x, Ax, { fill: COLOR.acento });
+
+      estado.innerHTML =
+        '<span>En <i>x</i> = ' + num(x, 2) + '</span>' +
+        '<span class="estado-valor" style="color:' + COLOR.acento + '">área acumulada <i>A</i>(<i>x</i>) = ' + num(Ax, 3) + '</span>' +
+        '<span class="estado-valor" style="color:' + color + '">pendiente de <i>A</i> = <i>f</i>(<i>x</i>) = ' + num(fx, 3) + '</span>';
+      barra.rotulo.innerHTML = '<i>x</i> = ' + num(x, 2);
+    }
+
+    dibujar();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Widget: familia de antiderivadas F(x) + C
+  // ---------------------------------------------------------------------------
+  function montarFamilia(raiz, cfg) {
+    var F = cfg.F, f = cfg.f, x = cfg.xInicial, C = 0;
+    var constantes = cfg.constantes || [-3, -2, -1, 0, 1, 2, 3];
+
+    raiz.classList.add('grafico');
+    var cuerpo = html('div', 'grafico-cuerpo grafico-cuerpo--columna', raiz);
+    var lienzo = new Lienzo(Object.assign({ ejeX: 'x', ejeY: 'y', descripcion: cfg.descripcion }, cfg.vista));
+    cuerpo.appendChild(lienzo.svg);
+    constantes.forEach(function (c) {
+      lienzo.curva(function (t) { return F(t) + c; }, { stroke: '#d4d4d4', 'stroke-width': 1.4 }, null, null, lienzo.fija);
+    });
+
+    var estado = html('p', 'grafico-estado', raiz);
+    var controles = html('div', 'grafico-controles', raiz);
+    var barraX = deslizador(controles, {
+      nombre: 'Punto x', min: cfg.xMin, max: cfg.xMax, paso: 0.05, valor: x,
+      alMover: function (v) { x = v; dibujar(); }
+    });
+    var barraC = deslizador(controles, {
+      nombre: 'Constante C', min: constantes[0], max: constantes[constantes.length - 1], paso: 0.25, valor: C,
+      alMover: function (v) { C = v; dibujar(); }
+    });
+    if (cfg.nota) html('p', 'grafico-nota', raiz, cfg.nota);
+
+    function dibujar() {
+      var m = f(x), largo = 0.55;
+      lienzo.limpiar();
+      constantes.forEach(function (c) {
+        var y = F(x) + c;
+        lienzo.segmento(x - largo, y - largo * m, x + largo, y + largo * m, { stroke: '#9ca3af', 'stroke-width': 1.3 });
+        lienzo.punto(x, y, { r: 3, fill: '#9ca3af', 'stroke-width': 1 });
+      });
+      var G = function (t) { return F(t) + C; };
+      lienzo.curva(G, { stroke: COLOR.tinta, 'stroke-width': 2.4 });
+      lienzo.segmento(x - 1.1, G(x) - 1.1 * m, x + 1.1, G(x) + 1.1 * m, { stroke: COLOR.acento, 'stroke-width': 2.2 });
+      lienzo.punto(x, G(x), { fill: COLOR.acento });
+
+      estado.innerHTML =
+        '<span>En <i>x</i> = ' + num(x, 2) + ', todas las curvas tienen la misma pendiente:</span>' +
+        '<span class="estado-valor" style="color:' + COLOR.acento + '"><i>f</i>(<i>x</i>) = ' + num(m, 2) + '</span>';
+      barraX.rotulo.innerHTML = '<i>x</i> = ' + num(x, 2);
+      barraC.rotulo.innerHTML = '<i>C</i> = ' + num(C, 2);
+    }
+
+    dibujar();
+  }
+
+  var tipos = {
+    secante: montarSecante, tangente: montarTangente, figura: montarFigura,
+    riemann: montarRiemann, acumulacion: montarAcumulacion, familia: montarFamilia
+  };
 
   window.Graficos = {
     montar: function (elemento, cfg) {

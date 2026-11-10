@@ -1,7 +1,13 @@
-/* Componente de ejercicio: opción múltiple o respuesta numérica,
- * con pistas progresivas y solución paso a paso.
+/* Componente de ejercicio, con pistas progresivas y solución paso a paso.
  *
  *   Ejercicio.montar(elemento, ejercicio, { alResolver: function () {} })
+ *
+ * Tipos (ejercicio.tipo):
+ *   'opciones'  → alternativas; `correcta` es el índice.
+ *   'numero'    → un valor; acepta 3, -0,5, 1/4, pi/2, e-1, ln(2)…
+ *   'expresion' → una función de x (por ejemplo una derivada o una antiderivada).
+ *                 `respuesta` es la expresión correcta como texto; con `constante: true`
+ *                 se acepta cualquier antiderivada (difieren en una constante).
  */
 (function () {
   'use strict';
@@ -19,23 +25,35 @@
       });
     },
     /* Devuelve el HTML de una fórmula suelta. */
-    html: function (tex) {
-      try { return window.katex.renderToString(tex, { throwOnError: false }); }
+    html: function (tex, enBloque) {
+      try { return window.katex.renderToString(tex, { throwOnError: false, displayMode: !!enBloque }); }
       catch (e) { return tex; }
     }
   };
 
-  /* Acepta 3 · -0,5 · −0.5 · 1/4 · -1/4 */
+  var Ex = window.Expresiones;
+
   function leerNumero(texto) {
-    var t = String(texto).trim().replace(/\s+/g, '').replace(/[−–]/g, '-').replace(/,/g, '.');
-    if (!t) return NaN;
-    var simple = /^[+-]?(\d+\.?\d*|\.\d+)$/;
-    var partes = t.split('/');
-    if (partes.length === 2 && simple.test(partes[0]) && simple.test(partes[1])) {
-      var den = parseFloat(partes[1]);
-      return den === 0 ? NaN : parseFloat(partes[0]) / den;
+    try { return Ex.valor(texto); } catch (e) { return NaN; }
+  }
+
+  /* Tolerancia por defecto: exacta si la respuesta tiene hasta 3 decimales; si no, se acepta redondear a 3. */
+  function tolerancia(ej) {
+    if (ej.tolerancia != null) return ej.tolerancia;
+    var r = ej.respuesta;
+    if (Math.abs(r * 1000 - Math.round(r * 1000)) < 1e-9) return 1e-9;
+    return 5e-4 * Math.max(1, Math.abs(r));
+  }
+
+  /* Texto LaTeX de la respuesta correcta, para soluciones y PDF. */
+  function respuestaTex(ej) {
+    if (ej.respuestaTex) return ej.respuestaTex;
+    if (ej.tipo === 'expresion') {
+      var t = Ex.aLatex(ej.respuesta, ej.variables || ['x']);
+      return t + (ej.constante ? '+C' : '');
     }
-    return simple.test(t) ? parseFloat(t) : NaN;
+    if (ej.tipo === 'numero') return window.Graficos.num(ej.respuesta, 4).replace('−', '-').replace(',', '{,}');
+    return '';
   }
 
   function crear(tag, clase, padre, contenido) {
@@ -55,6 +73,7 @@
     var resuelto = ficha.resuelto;
     var pistasVistas = 0;
     var elegida = -1;
+    var variables = ej.variables || ['x'];
 
     raiz.innerHTML = '';
     raiz.className = 'ejercicio';
@@ -68,7 +87,7 @@
     var formulario = crear('form', 'ej-respuesta', raiz);
     formulario.setAttribute('novalidate', '');
     var botonesOpcion = [];
-    var entrada = null;
+    var entrada = null, vista = null;
 
     if (ej.tipo === 'opciones') {
       var grupo = crear('div', 'opciones', formulario);
@@ -93,16 +112,47 @@
         botonesOpcion.push(b);
       });
     } else {
-      var linea = crear('label', 'campo', formulario);
+      var linea = crear('label', 'campo' + (ej.tipo === 'expresion' ? ' campo--expresion' : ''), formulario);
       if (ej.prefijo) crear('span', 'campo-prefijo', linea, ej.prefijo);
       entrada = crear('input', 'campo-entrada', linea);
       entrada.type = 'text';
-      entrada.setAttribute('inputmode', 'text');
       entrada.setAttribute('autocomplete', 'off');
+      entrada.setAttribute('autocapitalize', 'off');
+      entrada.setAttribute('spellcheck', 'false');
       entrada.setAttribute('aria-label', 'Tu respuesta');
-      entrada.placeholder = 'Tu respuesta';
+      entrada.placeholder = ej.ayuda || (ej.tipo === 'expresion' ? 'por ejemplo 3x^2 + 2x' : 'Tu respuesta');
+      if (ej.sufijo) crear('span', 'campo-unidad', linea, ej.sufijo);
+      else if (ej.tipo === 'expresion' && ej.constante) crear('span', 'campo-unidad', linea, '\\(+\\,C\\)');
       if (ej.unidad) crear('span', 'campo-unidad', linea, ej.unidad);
-      entrada.addEventListener('input', function () { mensaje('', ''); entrada.classList.remove('campo-entrada--mal'); });
+
+      if (ej.tipo === 'expresion') {
+        vista = crear('div', 'campo-vista', formulario);
+        crear('p', 'campo-ayuda', formulario,
+          'Usa <code>^</code> para potencias, <code>*</code> o un espacio para multiplicar, y paréntesis: ' +
+          '<code>sqrt(x)</code>, <code>sen(2x)</code>, <code>e^(3x)</code>, <code>ln(x)</code>.' +
+          (ej.constante ? ' La constante <code>+ C</code> es opcional.' : ''));
+      }
+
+      entrada.addEventListener('input', function () {
+        mensaje('', '');
+        entrada.classList.remove('campo-entrada--mal');
+        actualizarVista();
+      });
+    }
+
+    function actualizarVista() {
+      if (!vista) return;
+      var t = entrada.value;
+      if (ej.constante) t = Ex.sinConstante(t);
+      if (!t.trim()) { vista.innerHTML = ''; return; }
+      try {
+        var tex = Ex.aLatex(t, variables) + (ej.constante && /[cCkK]\s*$/.test(entrada.value.trim()) ? '+C' : '');
+        vista.innerHTML = '<span class="campo-vista-rotulo">Se lee:</span> ' + Mates.html(tex);
+        vista.classList.remove('campo-vista--error');
+      } catch (e) {
+        vista.textContent = e.esLectura ? e.message : 'No pude leer la expresión.';
+        vista.classList.add('campo-vista--error');
+      }
     }
 
     var cajaMensaje = crear('p', 'ej-mensaje', raiz);
@@ -138,7 +188,10 @@
       var d = crear('details', 'solucion', cajaSolucion);
       if (abierta) d.open = true;
       crear('summary', null, d, 'Solución paso a paso');
-      crear('div', 'solucion-cuerpo', d, ej.solucion);
+      var cuerpo = crear('div', 'solucion-cuerpo', d, ej.solucion);
+      if (ej.tipo === 'expresion') {
+        crear('p', 'solucion-respuesta', cuerpo, 'Respuesta: \\(' + (ej.prefijoTex || '') + respuestaTex(ej) + '\\)');
+      }
       Mates.pintar(d);
     }
 
@@ -149,7 +202,10 @@
       if (entrada) {
         entrada.readOnly = true;
         entrada.classList.add('campo-entrada--bien');
-        if (!entrada.value) entrada.value = window.Graficos.num(ej.respuesta, 6);
+        if (!entrada.value) {
+          entrada.value = ej.tipo === 'numero' ? window.Graficos.num(ej.respuesta, 6) : (ej.respuestaTexto || ej.respuesta);
+          actualizarVista();
+        }
       }
       botonesOpcion.forEach(function (b, i) {
         b.disabled = true;
@@ -164,11 +220,19 @@
       if (ej.tipo === 'opciones') {
         if (elegida < 0) { mensaje('Elige una alternativa.', 'aviso'); return; }
         correcto = elegida === ej.correcta;
-      } else {
+      } else if (ej.tipo === 'numero') {
         var valor = leerNumero(entrada.value);
-        if (isNaN(valor)) { mensaje('Escribe un número, por ejemplo 3, −0,5 o 1/4.', 'aviso'); return; }
-        var tol = ej.tolerancia != null ? ej.tolerancia : 1e-6;
-        correcto = Math.abs(valor - ej.respuesta) <= tol;
+        if (isNaN(valor)) { mensaje('Escribe un número o una expresión, por ejemplo 3, −0,5, 1/4, pi/2 o e−1.', 'aviso'); return; }
+        correcto = Math.abs(valor - ej.respuesta) <= tolerancia(ej);
+      } else {
+        try {
+          correcto = Ex.equivalentes(entrada.value, ej.respuesta, {
+            variables: variables, dominio: ej.dominio, constante: ej.constante
+          });
+        } catch (e) {
+          mensaje(e.esLectura ? e.message : 'No pude leer la expresión.', 'aviso');
+          return;
+        }
       }
 
       var f = P.registrarIntento(ej.id, correcto);
@@ -225,5 +289,5 @@
   }
 
   window.Mates = Mates;
-  window.Ejercicio = { montar: montar, leerNumero: leerNumero };
+  window.Ejercicio = { montar: montar, leerNumero: leerNumero, respuestaTex: respuestaTex, letras: LETRAS };
 })();
